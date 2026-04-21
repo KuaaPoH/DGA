@@ -69,49 +69,55 @@ def two_opt_route(route, c, d):
     return best_r
 
 def local_search_prins(n, W, L, q, c, d, routes):
-    # Tối ưu từng tuyến bằng 2-Opt
-    curr_routes = [two_opt_route(r, c, d) for r in routes]
-    best_routes = [r[:] for r in curr_routes]
+    best_routes = [two_opt_route(r, c, d) for r in routes]
     best_cost = get_total_cost(best_routes, c, d)
-    
     
     nodes = []
     for r_idx, r in enumerate(best_routes):
         for pos, cust in enumerate(r): nodes.append((cust, r_idx, pos))
     random.shuffle(nodes)
     
-    for u, r_u, p_u in nodes:
-        if r_u >= len(best_routes): continue 
+    for u_node, r_u, p_u in nodes:
+        found_better = False
+        if r_u >= len(best_routes) or p_u >= len(best_routes[r_u]): continue
+        
         for v_r_idx in range(-1, len(best_routes)):
-            new_routes = [r[:] for r in best_routes]
-            if p_u >= len(new_routes[r_u]): continue
-            new_routes[r_u].pop(p_u)
+            if v_r_idx == r_u: continue
             
+            new_routes = [r[:] for r in best_routes]
+            u = new_routes[r_u].pop(p_u)
             
             target_v = v_r_idx
             if not new_routes[r_u]:
                 new_routes.pop(r_u)
                 if v_r_idx > r_u: target_v -= 1
-                elif v_r_idx == r_u: continue 
             
             if target_v == -1: new_routes.append([u])
             else: new_routes[target_v].append(u)
-            
-            
+        
             valid = True
-            for r in new_routes:
-                load = sum(q[cid] for cid in r)
-                cost = c[0][r[0]] + d[r[0]]
-                for i in range(len(r)-1): cost += c[r[i]][r[i+1]] + d[r[i+1]]
-                cost += c[r[-1]][0]
-                if load > W or cost > L:
+            for r_chk in (new_routes[target_v],) if target_v != -1 else (new_routes[-1],):
+                if sum(q[cid] for cid in r_chk) > W:
                     valid = False; break
             
             if valid:
-                new_cost = get_total_cost(new_routes, c, d)
-                if new_cost < best_cost - 0.01:
-                    return [two_opt_route(r, c, d) for r in new_routes]
-    return best_routes
+                tmp_cost = get_total_cost(new_routes, c, d)
+                if tmp_cost < best_cost - 0.01:
+                    all_L_valid = True
+                    for r_chk in new_routes:
+                        c_chk = c[0][r_chk[0]] + d[r_chk[0]]
+                        for i in range(len(r_chk)-1): c_chk += c[r_chk[i]][r_chk[i+1]] + d[r_chk[i+1]]
+                        if c_chk + c[r_chk[-1]][0] > L:
+                            all_L_valid = False; break
+                    
+                    if all_L_valid:
+                        best_routes = new_routes
+                        best_cost = tmp_cost
+                        found_better = True
+                        break
+        if found_better: break 
+        
+    return [two_opt_route(r, c, d) for r in best_routes]
 
 def clarke_wright_savings(n, W, L, q, c, d):
     savings = []
@@ -126,7 +132,6 @@ def clarke_wright_savings(n, W, L, q, c, d):
         r_i = next((r for r in routes if i in r), None)
         r_j = next((r for r in routes if j in r), None)
         if r_i and r_j and r_i != r_j:
-            # Kiểm tra i, j có phải là điểm đầu/cuối của route không
             if (r_i[0] == i or r_i[-1] == i) and (r_j[0] == j or r_j[-1] == j):
                 # Thử ghép 4 trường hợp
                 res_r = None
@@ -184,7 +189,6 @@ class DVRP_GUI:
         
         tk.Button(self.sb, text="CHẠY THUẬT TOÁN", bg=self.CLR['success'], fg="white", font=("Segoe UI", 9, "bold"), command=self.run_ga, cursor="hand2").pack(fill=tk.X, padx=15, pady=15)
         
-        # Thống kê nhanh dưới nút chạy
         self.lbl_info = tk.Label(self.sb, text="Ready", bg=self.sb['bg'], fg="#888", font=("Arial", 8))
         self.lbl_info.pack(pady=10)
 
@@ -220,9 +224,9 @@ class DVRP_GUI:
         
         # --- BẢNG 1: KẾT QUẢ THỰC NGHIỆM CHÍNH ---
         tk.Label(container, text="BẢNG 1: THÔNG SỐ VÀ KẾT QUẢ TỐI ƯU (HGA)", font=("Segoe UI", 11, "bold"), bg="white", fg=self.sb['bg']).pack(pady=(5, 10))
-        cols1 = ("Pb", "n", "W", "L", "F(Pi1)", "Best GA", "Improve", "Time")
+        cols1 = ("Pb", "n", "W", "L", "F(Pi1)", "Best GA", "Conv Gen", "Improve", "Time")
         self.tree = ttk.Treeview(container, columns=cols1, show='headings', height=7)
-        col_widths1 = {"Pb": 50, "n": 50, "W": 70, "L": 70, "F(Pi1)": 100, "Best GA": 100, "Improve": 90, "Time": 80}
+        col_widths1 = {"Pb": 50, "n": 50, "W": 60, "L": 60, "F(Pi1)": 90, "Best GA": 90, "Conv Gen": 90, "Improve": 80, "Time": 70}
         for c in cols1:
             self.tree.heading(c, text=c)
             self.tree.column(c, width=col_widths1.get(c, 80), anchor="center")
@@ -238,15 +242,14 @@ class DVRP_GUI:
             self.tree_comp.column(c, width=col_widths2.get(c, 100), anchor="center")
         self.tree_comp.pack(fill=tk.X)
 
-        # Định dạng màu sắc cho các bảng
+
         for t in [self.tree, self.tree_comp]:
             t.tag_configure('oddrow', background='#F8FAFC')
             t.tag_configure('evenrow', background='white')
         
-        # Khởi tạo dữ liệu trống
         for i, (pid, d) in enumerate(EXPERIMENT_SET.items()):
             tag = 'evenrow' if i % 2 == 0 else 'oddrow'
-            self.tree.insert("", "end", values=(pid, d['n'], d['W'], d['L'], "-", "-", "-", "Wait"), tags=(tag,))
+            self.tree.insert("", "end", values=(pid, d['n'], d['W'], d['L'], "-", "-", "-", "-", "Wait"), tags=(tag,))
             self.tree_comp.insert("", "end", values=(pid, "-", "-", "-", "-"), tags=(tag,))
 
     def set_mouse(self, e): self.last_x, self.last_y = e.x, e.y
@@ -280,10 +283,9 @@ class DVRP_GUI:
         self.current_id = pid; self.lbl_stats.config(text=f"n: {self.n}, W: {self.W}, L: {self.L}")
         self.population = []
         
-        # Logic Auto-fit
         self.canv.update()
         cw, ch = self.canv.winfo_width(), self.canv.winfo_height()
-        if cw < 100: cw, ch = 800, 500 # Dự phòng
+        if cw < 100: cw, ch = 800, 500 
         
         xs = [p[0] for p in self.raw_nodes]; ys = [p[1] for p in self.raw_nodes]
         min_x, max_x, min_y, max_y = min(xs), max(xs), min(ys), max(ys)
@@ -308,7 +310,6 @@ class DVRP_GUI:
         for i in range(1, self.n+1): self.canv.create_oval(sn[i][0]-2, sn[i][1]-2, sn[i][0]+2, sn[i][1]+2, fill="white", outline="#6366F1")
         self.canv.create_rectangle(sn[0][0]-5, sn[0][1]-5, sn[0][0]+5, sn[0][1]+5, fill="#1E293B")
         
-        # Chú thích linh hoạt theo chiều rộng Canvas
         cw = self.canv.winfo_width()
         lx = cw - 200 if cw > 250 else 600
         self.canv.create_rectangle(lx, 10, lx + 190, 100, fill="#F8FAFC", outline="#DDD")
@@ -332,7 +333,7 @@ class DVRP_GUI:
         cw_routes = clarke_wright_savings(self.n, self.W, self.L, self.q, self.c, [0]*(self.n+1))
         cw_cost = get_total_cost(cw_routes, self.c, [0]*(self.n+1))
         
-        # 2. Chạy GA thuần (Pure GA) - Không có Local Search
+        # 2. Chạy GA thuần (Pure GA)
         self.lbl_info.config(text="Running Pure GA...", fg=self.CLR['accent'])
         pure_pop = []
         while len(pure_pop) < pop_sz:
@@ -356,16 +357,32 @@ class DVRP_GUI:
         # 3. Chạy HGA 
         self.lbl_info.config(text="Running HGA...", fg=self.CLR['primary'])
         self.population = []
-        no_improve = 0; best_ever = float('inf')
+        no_improve = 0; best_ever = float('inf'); best_gen = 0
+        
+        # GIAI ĐOẠN KHỞI TẠO
+        # Mồi hạt giống từ Baseline (NN) và Clarke-Wright (CW)
         self.population.append({'S': self.baseline_tour, 'cost': self.baseline_cost, 'P': self.baseline_P})
+        
+        cw_tour = [0]
+        for r in cw_routes:
+            for node in r: cw_tour.append(node)
+        V_cw, P_cw = split_procedure(self.n, self.W, self.L, self.q, self.c, [0]*(self.n+1), cw_tour)
+        self.population.append({'S': cw_tour, 'cost': V_cw[self.n], 'P': P_cw})
+        
+        best_init_cost = min(self.baseline_cost, V_cw[self.n])
+        best_ever = best_init_cost
+        
         while len(self.population) < pop_sz:
             S = [0] + random.sample(range(1, self.n + 1), self.n)
             V, P = split_procedure(self.n, self.W, self.L, self.q, self.c, [0]*(self.n+1), S)
             if not any(abs(V[self.n]-p['cost']) < 0.1 for p in self.population):
                 self.population.append({'S': S, 'cost': V[self.n], 'P': P})
+                if V[self.n] < best_ever: 
+                    best_ever = V[self.n]
         
+        # GIAI ĐOẠN TIẾN HÓA
         self.prog['maximum'] = max_gn
-        for gen in range(max_gn):
+        for gen in range(1, max_gn + 1): 
             def get_parent():
                 p_cand = random.sample(self.population, 3)
                 return min(p_cand, key=lambda x: x['cost'])['S']
@@ -375,31 +392,44 @@ class DVRP_GUI:
             p2f = [x for x in p2[1:] if x not in child_S]; idx = 0
             for i in range(1, self.n+1):
                 if child_S[i] == -1: child_S[i] = p2f[idx]; idx += 1
-            if random.random() < pm or gen % 10 == 0:
+            
+          
+            if random.random() < pm or gen % 5 == 0:
                 V, P = split_procedure(self.n, self.W, self.L, self.q, self.c, [0]*(self.n+1), child_S)
                 improved_routes = local_search_prins(self.n, self.W, self.L, self.q, self.c, [0]*(self.n+1), extract_routes(self.n, child_S, P))
                 child_S = [0]; [child_S.append(c) for r in improved_routes for c in r]
+            
             V, P = split_procedure(self.n, self.W, self.L, self.q, self.c, [0]*(self.n+1), child_S)
             new_cost = V[self.n]
+            
             worst_idx = max(range(len(self.population)), key=lambda i: self.population[i]['cost'])
             if new_cost < self.population[worst_idx]['cost'] and not any(abs(new_cost - p['cost']) < 0.05 for p in self.population):
                 self.population[worst_idx] = {'S': child_S, 'cost': new_cost, 'P': P}
-                if new_cost < best_ever: best_ever = new_cost; no_improve = 0
+                
+             
+                if new_cost < best_ever - 0.05: 
+                    best_ever = new_cost
+                    best_gen = gen 
+                    no_improve = 0
                 else: no_improve += 1
             else: no_improve += 1
+            
             if gen % 20 == 0:
                 self.prog['value'] = gen; self.draw(); self.root.update()
         
         self.prog['value'] = max_gn
         best = min(self.population, key=lambda x: x['cost'])
         gap = ((self.baseline_cost - best['cost'])/self.baseline_cost)*100
+        
+  
+        conv_display = f"{best_gen}" if best_gen > 0 else "0 (Seed)"
 
-        # Cập nhật Bảng 1 (Benchmark chính)
+        # Cập nhật Bảng 1
         for item in self.tree.get_children():
             if self.tree.item(item)['values'][0] == self.current_id:
-                self.tree.item(item, values=(self.current_id, self.n, self.W, self.L, f"{self.baseline_cost:.2f}", f"{best['cost']:.2f}", f"{max(0, gap):.2f}%", f"{time.time()-start_t:.1f}s"))
+                self.tree.item(item, values=(self.current_id, self.n, self.W, self.L, f"{self.baseline_cost:.2f}", f"{best['cost']:.2f}", conv_display, f"{max(0, gap):.2f}%", f"{time.time()-start_t:.1f}s"))
         
-        # Cập nhật Bảng 2 (So sánh thuật toán)
+        # Cập nhật Bảng 2 
         for item in self.tree_comp.get_children():
             if self.tree_comp.item(item)['values'][0] == self.current_id:
                 self.tree_comp.item(item, values=(self.current_id, f"{self.baseline_cost:.2f}", f"{cw_cost:.2f}", f"{pure_ga_cost:.2f}", f"{best['cost']:.2f}"))
